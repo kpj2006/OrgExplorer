@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { fetchOrg, fetchRepos, fetchContributors, fetchIssues, } from '../services/github'
 import { buildAnalyticalModel, getTopRepositories } from '../services/analytics'
+import { exchangeCodeForToken } from '../services/pkce'
 
 const Ctx = createContext(null)
 
@@ -26,6 +27,10 @@ function getStoredRateLimit() {
 
 export function AppProvider({ children }) {
   const [pat, setPat] = useState(() => localStorage.getItem('oe_pat') || '')
+  const [oauthClientId, setOauthClientId] = useState(() => localStorage.getItem('oe_oauth_client_id') || '')
+  const [oauthClientSecret, setOauthClientSecret] = useState(() => localStorage.getItem('oe_oauth_client_secret') || '')
+  const [oauthProxy, setOauthProxy] = useState(() => localStorage.getItem('oe_oauth_proxy') || '')
+  const exchangeTriggered = useRef(false)
   const [orgs, setOrgs] = useState([])
   const [model, setModel] = useState(null)
   const [issuesData, setIssuesData] = useState({})
@@ -63,6 +68,73 @@ export function AppProvider({ children }) {
     setPat(token)
     token ? localStorage.setItem('oe_pat', token) : localStorage.removeItem('oe_pat')
   }, [])
+
+  const saveOauthClientId = useCallback(id => {
+    setOauthClientId(id)
+    id ? localStorage.setItem('oe_oauth_client_id', id) : localStorage.removeItem('oe_oauth_client_id')
+  }, [])
+
+  const saveOauthProxy = useCallback(url => {
+    setOauthProxy(url)
+    url ? localStorage.setItem('oe_oauth_proxy', url) : localStorage.removeItem('oe_oauth_proxy')
+  }, [])
+
+  const saveOauthClientSecret = useCallback(secret => {
+    setOauthClientSecret(secret)
+    secret ? localStorage.setItem('oe_oauth_client_secret', secret) : localStorage.removeItem('oe_oauth_client_secret')
+  }, [])
+
+  // Listen for OAuth authorization callback code in the query params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('code')
+    const state = params.get('state')
+
+    if (code && state && !exchangeTriggered.current) {
+      exchangeTriggered.current = true
+      console.log('[AppContext OAuth Callback] Intercepted URL callback params:', { code, state })
+      // Clear URL query parameters immediately to avoid repeat requests on refresh
+      const cleanUrl = window.location.pathname + window.location.hash
+      console.log('[AppContext OAuth Callback] Rewriting address bar URL to:', cleanUrl)
+      window.history.replaceState({}, document.title, cleanUrl)
+
+      const exchangeToken = async () => {
+        setLoading(true)
+        setLoadMsg('Exchanging GitHub authorization code for token...')
+        setError('')
+        try {
+          const clientId = localStorage.getItem('oe_oauth_client_id')
+          const clientSecret = localStorage.getItem('oe_oauth_client_secret')
+          const proxy = localStorage.getItem('oe_oauth_proxy')
+          console.log('[AppContext OAuth Callback] Loaded credentials from localStorage:', { clientId, clientSecret: clientSecret ? '***' : 'missing', proxy })
+          if (!clientId) {
+            throw new Error('OAuth Client ID is missing. Please configure it in Settings.')
+          }
+
+          // Use the base origin and path as redirect URI (must match registered redirect URI)
+          const redirectUri = window.location.origin + window.location.pathname
+          console.log('[AppContext OAuth Callback] Redirect URI generated:', redirectUri)
+          
+          const tokenData = await exchangeCodeForToken(clientId, clientSecret, redirectUri, code, state, proxy)
+          console.log('[AppContext OAuth Callback] Received token response payload:', tokenData)
+          if (tokenData && tokenData.access_token) {
+            console.log('[AppContext OAuth Callback] Token exchange successful, saving access token.')
+            savePat(tokenData.access_token)
+          } else {
+            throw new Error('Token payload missing access_token')
+          }
+        } catch (err) {
+          console.error('[AppContext OAuth Callback] Exchange failed with error:', err)
+          setError(`OAuth Error: ${err.message}`)
+        } finally {
+          setLoading(false)
+          setLoadMsg('')
+        }
+      }
+
+      exchangeToken()
+    }
+  }, [savePat])
 
   // Multi-org explore — core of Section 3.2.0
   const explore = useCallback(async orgNames => {
@@ -181,6 +253,8 @@ export function AppProvider({ children }) {
       pat, savePat, orgs, model, issuesData,
       rateLimit, loading, loadMsg, govLoading, error, totalRepo,
       explore, runAudit, setError, staleRepoStats,
+      oauthClientId, saveOauthClientId, oauthProxy, saveOauthProxy,
+      oauthClientSecret, saveOauthClientSecret,
     }}>
       {children}
     </Ctx.Provider>

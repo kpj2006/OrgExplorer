@@ -1,15 +1,52 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { FiEye, FiEyeOff, FiTrash2, FiSave, FiRefreshCw } from 'react-icons/fi'
+import { FaGithub } from 'react-icons/fa'
 import { useApp } from '../context/AppContext'
 import { C } from '../components/UI'
 import { cacheClear } from '../services/github'
-import { AiOutlineInfoCircle } from "react-icons/ai";
+import { AiOutlineInfoCircle } from "react-icons/ai"
+import { initiateOAuthFlow } from '../services/pkce'
+
 export default function SettingsPage() {
-  const { pat, savePat, rateLimit } = useApp()
+  const { 
+    pat, savePat, rateLimit, 
+    oauthClientId, saveOauthClientId, 
+    oauthClientSecret, saveOauthClientSecret,
+    oauthProxy, saveOauthProxy 
+  } = useApp()
+
   const [draft, setDraft] = useState(pat)
+  const [clientIdDraft, setClientIdDraft] = useState(oauthClientId)
+  const [clientSecretDraft, setClientSecretDraft] = useState(oauthClientSecret)
+  const [proxyDraft, setProxyDraft] = useState(oauthProxy)
   const [show, setShow] = useState(false)
   const [saved, setSaved] = useState(false)
   const [cleared, setCleared] = useState(false)
+
+  const handleOAuthLogin = () => {
+    const cid = clientIdDraft.trim()
+    const secret = clientSecretDraft.trim()
+    const proxy = proxyDraft.trim()
+    if (!cid) return
+    saveOauthClientId(cid)
+    saveOauthClientSecret(secret)
+    saveOauthProxy(proxy)
+    
+    // Redirect URI must match the current page URL
+    const redirectUri = window.location.origin + window.location.pathname
+    initiateOAuthFlow(cid, redirectUri)
+  }
+
+  const handleOAuthLogout = () => {
+    savePat('')
+    saveOauthClientId('')
+    saveOauthClientSecret('')
+    saveOauthProxy('')
+    setClientIdDraft('')
+    setClientSecretDraft('')
+    setProxyDraft('')
+    setDraft('')
+  }
 
   const handleSave = () => {
     savePat(draft.trim())
@@ -55,6 +92,83 @@ export default function SettingsPage() {
 
         {/* Left column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* GitHub OAuth (PKCE) */}
+          <div style={C.card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <FaGithub size={18} />
+                  <span>GitHub OAuth (PKCE)</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>Secure browser-only login</div>
+              </div>
+              {pat && oauthClientId && (
+                <span style={C.pill('var(--green)', 'rgba(34,197,94,.12)')}>OAUTH AUTHENTICATED</span>
+              )}
+            </div>
+
+            <div style={{ fontSize: 11, color: 'var(--text2)', letterSpacing: '.06em', marginBottom: 6 }}>
+              OAUTH CLIENT ID
+            </div>
+            <input
+              type="text"
+              value={clientIdDraft}
+              onChange={e => setClientIdDraft(e.target.value)}
+              placeholder="Enter your GitHub OAuth App Client ID"
+              style={{ ...C.input, width: '100%', marginBottom: 12 }}
+            />
+
+            <div style={{ fontSize: 11, color: 'var(--text2)', letterSpacing: '.06em', marginBottom: 6 }}>
+              OAUTH CLIENT SECRET
+            </div>
+            <input
+              type="password"
+              value={clientSecretDraft}
+              onChange={e => setClientSecretDraft(e.target.value)}
+              placeholder="Enter your GitHub OAuth App Client Secret"
+              style={{ ...C.input, width: '100%', marginBottom: 12 }}
+            />
+
+            <details style={{ marginBottom: 16 }}>
+              <summary style={{ fontSize: 12, color: 'var(--text2)', cursor: 'pointer', outline: 'none', userSelect: 'none' }}>
+                Advanced: CORS Proxy settings
+              </summary>
+              <div style={{ marginTop: 8, padding: 10, background: 'var(--surface2)', borderRadius: 6 }}>
+                <div style={{ fontSize: 11, color: 'var(--text2)', letterSpacing: '.06em', marginBottom: 6 }}>
+                  CORS PROXY URL (OPTIONAL)
+                </div>
+                <input
+                  type="text"
+                  value={proxyDraft}
+                  onChange={e => setProxyDraft(e.target.value)}
+                  placeholder="Defaults to local Vite dev proxy /github-token-exchange"
+                  style={{ ...C.input, width: '100%' }}
+                />
+                <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 6, lineHeight: 1.4 }}>
+                  GitHub's token endpoint blocks CORS requests in browser-only environments. In development, Vite handles proxying. When deploying, configure a CORS proxy if needed.
+                </div>
+              </div>
+            </details>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleOAuthLogin}
+                disabled={!clientIdDraft.trim()}
+                style={{ ...C.btn('primary'), display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, flex: 1, justifyContent: 'center' }}
+              >
+                <FaGithub size={14} /> Sign in with GitHub
+              </button>
+              {pat && oauthClientId && (
+                <button
+                  onClick={handleOAuthLogout}
+                  style={{ ...C.btn('danger'), display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
+                >
+                  Disconnect
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* GitHub Authentication */}
           <div style={C.card}>
